@@ -39,6 +39,7 @@ import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 import { AdminParticipantsPage } from './pages/admin/AdminParticipantsPage';
 import { AdminParticipantDetailPage } from './pages/admin/AdminParticipantDetailPage';
 import { AdminPartnersPage } from './pages/admin/AdminPartnersPage';
+import { AdminAssignmentsPage } from './pages/admin/AdminAssignmentsPage';
 import { AdminCohortsPage } from './pages/admin/AdminCohortsPage';
 import { AdminActivitiesPage } from './pages/admin/AdminActivitiesPage';
 import { AdminCreateActivityPage } from './pages/admin/AdminCreateActivityPage';
@@ -237,6 +238,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/admin/assignments"
+                  element={
+                    <RequireRole allowed={MANAGER_ADMIN_ROLES}>
+                      <AdminAssignmentsPage />
+                    </RequireRole>
+                  }
+                />
+                <Route
                   path="/admin/cohorts"
                   element={
                     <RequireRole allowed={MANAGER_ADMIN_ROLES}>
@@ -289,6 +298,14 @@ export default function App() {
                   element={
                     <RequireRole allowed={MANAGER_ADMIN_ROLES}>
                       <AdminAnnouncementsPage />
+                    </RequireRole>
+                  }
+                />
+                <Route
+                  path="/admin/audit-logs"
+                  element={
+                    <RequireRole allowed={FULL_ADMIN_ROLES}>
+                      <AdminSettingsPage />
                     </RequireRole>
                   }
                 />

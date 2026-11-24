@@ -57,6 +57,8 @@ export type AuditCategory =
 
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 
+export const DEFAULT_PARTNER_MAX_CASELOAD = 10;
+
 export interface UserProfile {
   uid: string;
   displayName: string;
@@ -71,6 +73,12 @@ export interface UserProfile {
   ppa: string;
   department: string;
   inviteCode: string;
+  phone?: string;
+  gender?: string;
+  state?: string;
+  organisation?: string;
+  maxCaseload?: number;
+  notes?: string;
   lastLoginAt: Timestamp | null;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
@@ -97,6 +105,12 @@ export interface Invitation {
   stateCode: string;
   ppa: string;
   department?: string;
+  phone?: string;
+  gender?: string;
+  state?: string;
+  organisation?: string;
+  maxCaseload?: number;
+  notes?: string;
   status: 'pending' | 'claimed' | 'revoked';
   claimedBy: string;
   createdBy: string;

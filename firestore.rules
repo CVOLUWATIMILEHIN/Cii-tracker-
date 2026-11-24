@@ -116,7 +116,8 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'uid', 'displayName', 'role', 'status', 'cohortId', 'cohortName',
           'assignedCohortIds', 'partnerId', 'partnerName', 'stateCode', 'ppa',
-          'department', 'inviteCode', 'lastLoginAt', 'createdAt', 'updatedAt'
+          'department', 'inviteCode', 'phone', 'gender', 'state', 'organisation',
+          'maxCaseload', 'notes', 'lastLoginAt', 'createdAt', 'updatedAt'
         ])
         && data.uid is string && data.uid == userId && isValidId(data.uid)
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
@@ -131,6 +132,12 @@ service cloud.firestore {
         && data.ppa is string && data.ppa.size() <= 120
         && data.department is string && data.department.size() >= 1 && data.department.size() <= 64
         && data.inviteCode is string && data.inviteCode.size() <= 40
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 32))
+        && (!('gender' in data) || (data.gender is string && data.gender.size() <= 24))
+        && (!('state' in data) || (data.state is string && data.state.size() <= 48))
+        && (!('organisation' in data) || (data.organisation is string && data.organisation.size() <= 120))
+        && (!('maxCaseload' in data) || ((data.maxCaseload is int || data.maxCaseload is float) && data.maxCaseload >= 0 && data.maxCaseload <= 200))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500))
         && (data.lastLoginAt == null || data.lastLoginAt is timestamp)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -155,7 +162,8 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'id', 'email', 'displayName', 'role', 'cohortId', 'cohortName',
           'assignedCohortIds', 'partnerId', 'partnerName', 'stateCode', 'ppa',
-          'department', 'status', 'claimedBy', 'createdBy', 'createdAt', 'updatedAt'
+          'department', 'phone', 'gender', 'state', 'organisation',
+          'maxCaseload', 'notes', 'status', 'claimedBy', 'createdBy', 'createdAt', 'updatedAt'
         ])
         && data.id is string && data.id == inviteId && isValidId(data.id)
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
@@ -169,6 +177,12 @@ service cloud.firestore {
         && data.stateCode is string && data.stateCode.size() <= 32
         && data.ppa is string && data.ppa.size() <= 120
         && (!('department' in data) || (data.department is string && data.department.size() <= 64))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 32))
+        && (!('gender' in data) || (data.gender is string && data.gender.size() <= 24))
+        && (!('state' in data) || (data.state is string && data.state.size() <= 48))
+        && (!('organisation' in data) || (data.organisation is string && data.organisation.size() <= 120))
+        && (!('maxCaseload' in data) || ((data.maxCaseload is int || data.maxCaseload is float) && data.maxCaseload >= 0 && data.maxCaseload <= 200))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500))
         && data.status is string && data.status in ['pending', 'claimed', 'revoked']
         && data.claimedBy is string && data.claimedBy.size() <= 128
         && data.createdBy is string && isValidId(data.createdBy)
@@ -507,7 +521,7 @@ service cloud.firestore {
           (isOwner(userId)
             && existing().status == 'active'
             && incoming().diff(existing()).affectedKeys().hasOnly([
-              'displayName', 'stateCode', 'ppa', 'department', 'lastLoginAt', 'updatedAt'
+              'displayName', 'stateCode', 'ppa', 'department', 'phone', 'gender', 'state', 'organisation', 'notes', 'lastLoginAt', 'updatedAt'
             ]))
         );
 

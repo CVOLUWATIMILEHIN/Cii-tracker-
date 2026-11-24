@@ -41,6 +41,7 @@ import {
   CheckinStatus,
   Cohort,
   DailyCheckin,
+  DEFAULT_PARTNER_MAX_CASELOAD,
   FollowUp,
   FollowUpSource,
   FollowUpStatus,
@@ -190,6 +191,8 @@ export async function ensureUserProfile(
                 ? 'Accountability Partnership'
                 : 'Corps Member');
 
+      const resolvedPhone = sanitizeString(inviteData?.phone || options?.phone || '', 32);
+
       await setDoc(userRef, {
         uid,
         displayName: inviteData?.displayName || fallbackName,
@@ -204,6 +207,17 @@ export async function ensureUserProfile(
         ppa: inviteData?.ppa || '',
         department: sanitizeString(defaultDepartment, 64),
         inviteCode: inviteData ? inviteData.id : '',
+        phone: resolvedPhone,
+        gender: sanitizeString(inviteData?.gender || '', 24),
+        state: sanitizeString(inviteData?.state || '', 48),
+        organisation: sanitizeString(inviteData?.organisation || '', 120),
+        maxCaseload:
+          typeof inviteData?.maxCaseload === 'number' && inviteData.maxCaseload > 0
+            ? clampNumber(Math.round(inviteData.maxCaseload), 1, 200)
+            : initialRole === 'partner'
+              ? DEFAULT_PARTNER_MAX_CASELOAD
+              : 0,
+        notes: sanitizeString(inviteData?.notes || '', 500),
         lastLoginAt: serverTimestamp(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -247,6 +261,12 @@ export async function ensureUserProfile(
         'ppa',
         'department',
         'inviteCode',
+        'phone',
+        'gender',
+        'state',
+        'organisation',
+        'maxCaseload',
+        'notes',
         'lastLoginAt',
         'createdAt',
         'updatedAt',
@@ -336,9 +356,9 @@ export async function ensureUserProfile(
   try {
     const privSnap = await getDoc(privateRef);
     const existingPhone =
-      privSnap.exists() && typeof privSnap.data().phone === 'string'
+      privSnap.exists() && typeof privSnap.data().phone === 'string' && privSnap.data().phone
         ? sanitizeString(privSnap.data().phone, 32)
-        : phone;
+        : sanitizeString(profile.phone || phone, 32);
 
     await setDoc(privateRef, {
       uid,
@@ -369,10 +389,12 @@ export async function ensureUserProfile(
 }
 
 function normalizeUserProfile(raw: Partial<UserProfile> & { uid?: string }): UserProfile {
+  const role = raw.role || 'member';
+  const normalizedRole = normalizeRole(role);
   return {
     uid: raw.uid || '',
     displayName: raw.displayName || 'CII Member',
-    role: raw.role || 'member',
+    role,
     status: raw.status || 'active',
     cohortId: raw.cohortId || '',
     cohortName: raw.cohortName || '',
@@ -383,6 +405,17 @@ function normalizeUserProfile(raw: Partial<UserProfile> & { uid?: string }): Use
     ppa: raw.ppa || '',
     department: raw.department || 'Corps Member',
     inviteCode: raw.inviteCode || '',
+    phone: typeof raw.phone === 'string' ? raw.phone : '',
+    gender: typeof raw.gender === 'string' ? raw.gender : '',
+    state: typeof raw.state === 'string' ? raw.state : '',
+    organisation: typeof raw.organisation === 'string' ? raw.organisation : '',
+    maxCaseload:
+      typeof raw.maxCaseload === 'number' && raw.maxCaseload > 0
+        ? raw.maxCaseload
+        : normalizedRole === 'partner'
+          ? DEFAULT_PARTNER_MAX_CASELOAD
+          : 0,
+    notes: typeof raw.notes === 'string' ? raw.notes : '',
     lastLoginAt: raw.lastLoginAt || null,
     createdAt: raw.createdAt || null,
     updatedAt: raw.updatedAt || null,
@@ -801,6 +834,12 @@ export async function createInvitation(params: {
   stateCode: string;
   ppa: string;
   department?: string;
+  phone?: string;
+  gender?: string;
+  state?: string;
+  organisation?: string;
+  maxCaseload?: number;
+  notes?: string;
 }): Promise<string> {
   const inviteCode = sanitizeId(
     `CII-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random()
@@ -811,6 +850,12 @@ export async function createInvitation(params: {
   const cleanAssignedCohortIds = Array.isArray(params.assignedCohortIds)
     ? params.assignedCohortIds.map((id) => sanitizeId(id)).filter(Boolean).slice(0, 20)
     : [];
+  const cleanMaxCaseload =
+    typeof params.maxCaseload === 'number' && params.maxCaseload > 0
+      ? clampNumber(Math.round(params.maxCaseload), 1, 200)
+      : params.role === 'partner'
+        ? DEFAULT_PARTNER_MAX_CASELOAD
+        : 0;
 
   try {
     await setDoc(doc(db, 'invitations', inviteCode), {
@@ -825,7 +870,18 @@ export async function createInvitation(params: {
       partnerName: sanitizeString(params.partnerName, 100),
       stateCode: sanitizeString(params.stateCode, 32),
       ppa: sanitizeString(params.ppa, 120),
-      department: sanitizeString(params.department || '', 64),
+      department: sanitizeString(
+        params.department ||
+          params.organisation ||
+          (params.role === 'partner' ? 'Accountability Partnership' : ''),
+        64
+      ),
+      phone: sanitizeString(params.phone || '', 32),
+      gender: sanitizeString(params.gender || '', 24),
+      state: sanitizeString(params.state || '', 48),
+      organisation: sanitizeString(params.organisation || '', 120),
+      maxCaseload: cleanMaxCaseload,
+      notes: sanitizeString(params.notes || '', 500),
       status: 'pending',
       claimedBy: '',
       createdBy: params.actor.uid,
@@ -836,17 +892,259 @@ export async function createInvitation(params: {
       actorId: params.actor.uid,
       actorName: params.actor.displayName,
       actorRole: normalizeRole(params.actor.role),
-      action: isAdminPortalRole(params.role) ? 'ADMIN_INVITATION_CREATED' : 'INVITATION_CREATED',
+      action: isAdminPortalRole(params.role)
+        ? 'ADMIN_INVITATION_CREATED'
+        : params.role === 'partner'
+          ? 'PARTNER_INVITATION_CREATED'
+          : 'INVITATION_CREATED',
       category: 'rbac',
       severity: isAdminPortalRole(params.role) ? 'critical' : 'info',
-      targetType: 'invitation',
+      targetType: params.role === 'partner' ? 'partner_invitation' : 'invitation',
       targetId: inviteCode,
-      summary: `Issued ${ROLE_LABELS[params.role]} activation invite (${inviteCode}) for ${params.email.toLowerCase()}.`,
+      summary: `Issued ${ROLE_LABELS[params.role]} activation invite (${inviteCode}) for ${params.displayName} (${params.email.toLowerCase()}).`,
     });
     return inviteCode;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, `invitations/${inviteCode}`);
   }
+}
+
+export async function bulkImportPartnerInvitations(params: {
+  actor: UserProfile;
+  cohortId?: string;
+  cohortName?: string;
+  rows: Array<{
+    fullName: string;
+    email: string;
+    phone: string;
+    gender: string;
+    state: string;
+    organisation: string;
+    maxCaseload: number;
+    notes: string;
+  }>;
+}): Promise<Array<{ inviteCode: string; email: string; displayName: string; maxCaseload: number }>> {
+  const { actor, rows } = params;
+  const created: Array<{
+    inviteCode: string;
+    email: string;
+    displayName: string;
+    maxCaseload: number;
+  }> = [];
+
+  try {
+    const batch = writeBatch(db);
+    for (const row of rows.slice(0, 200)) {
+      const inviteCode = sanitizeId(
+        `CII-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random()
+          .toString(36)
+          .slice(2, 6)
+          .toUpperCase()}`
+      );
+      const cleanEmail = sanitizeString(row.email.trim().toLowerCase(), 160);
+      const cleanName = sanitizeString(row.fullName.trim(), 100);
+      const cleanCaseload = clampNumber(
+        Math.round(row.maxCaseload || DEFAULT_PARTNER_MAX_CASELOAD),
+        1,
+        200
+      );
+
+      batch.set(doc(db, 'invitations', inviteCode), {
+        id: inviteCode,
+        email: cleanEmail,
+        displayName: cleanName,
+        role: 'partner',
+        cohortId: sanitizeString(params.cohortId || '', 128),
+        cohortName: sanitizeString(params.cohortName || '', 100),
+        assignedCohortIds: [],
+        partnerId: '',
+        partnerName: '',
+        stateCode: '',
+        ppa: '',
+        department: sanitizeString(row.organisation || 'Accountability Partnership', 64),
+        phone: sanitizeString(row.phone || '', 32),
+        gender: sanitizeString(row.gender || '', 24),
+        state: sanitizeString(row.state || '', 48),
+        organisation: sanitizeString(row.organisation || '', 120),
+        maxCaseload: cleanCaseload,
+        notes: sanitizeString(row.notes || '', 500),
+        status: 'pending',
+        claimedBy: '',
+        createdBy: actor.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      created.push({
+        inviteCode,
+        email: cleanEmail,
+        displayName: cleanName,
+        maxCaseload: cleanCaseload,
+      });
+    }
+
+    await batch.commit();
+
+    await recordAuditEvent({
+      actorId: actor.uid,
+      actorName: actor.displayName,
+      actorRole: normalizeRole(actor.role),
+      action: 'PARTNER_BULK_IMPORTED',
+      category: 'rbac',
+      severity: 'info',
+      targetType: 'partner_import',
+      targetId: `batch_${created.length}`,
+      summary: `Bulk imported ${created.length} Accountability Partner invitation(s) via spreadsheet upload.`,
+    });
+
+    return created;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'invitations/bulk_import');
+  }
+}
+
+export async function adminUpdatePartnerProfile(params: {
+  actor: UserProfile;
+  target: UserProfile;
+  displayName: string;
+  phone: string;
+  gender: string;
+  state: string;
+  organisation: string;
+  maxCaseload: number;
+  notes: string;
+  status: UserStatus;
+  cohortId?: string;
+  cohortName?: string;
+}): Promise<void> {
+  const { actor, target } = params;
+  const cleanCaseload = clampNumber(
+    Math.round(params.maxCaseload || DEFAULT_PARTNER_MAX_CASELOAD),
+    1,
+    200
+  );
+  const statusChanged = target.status !== params.status;
+
+  try {
+    await updateDoc(doc(db, 'users', target.uid), {
+      displayName: sanitizeString(params.displayName, 100),
+      role: 'partner',
+      status: params.status,
+      cohortId: sanitizeString(
+        params.cohortId !== undefined ? params.cohortId : target.cohortId,
+        128
+      ),
+      cohortName: sanitizeString(
+        params.cohortName !== undefined ? params.cohortName : target.cohortName,
+        100
+      ),
+      phone: sanitizeString(params.phone, 32),
+      gender: sanitizeString(params.gender, 24),
+      state: sanitizeString(params.state, 48),
+      organisation: sanitizeString(params.organisation, 120),
+      department: sanitizeString(
+        params.organisation || target.department || 'Accountability Partnership',
+        64
+      ),
+      maxCaseload: cleanCaseload,
+      notes: sanitizeString(params.notes, 500),
+      updatedAt: serverTimestamp(),
+    });
+
+    await recordAuditEvent({
+      actorId: actor.uid,
+      actorName: actor.displayName,
+      actorRole: normalizeRole(actor.role),
+      action: statusChanged
+        ? params.status === 'active'
+          ? 'PARTNER_ACTIVATED'
+          : 'PARTNER_DEACTIVATED'
+        : 'PARTNER_PROFILE_UPDATED',
+      category: 'rbac',
+      severity: statusChanged ? 'warning' : 'info',
+      targetType: 'partner',
+      targetId: target.uid,
+      summary: statusChanged
+        ? `${params.status === 'active' ? 'Activated' : 'Deactivated'} Accountability Partner ${params.displayName} (max caseload: ${cleanCaseload}).`
+        : `Updated Accountability Partner ${params.displayName} (max caseload: ${cleanCaseload}, org: ${params.organisation || 'CII'}).`,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `users/${target.uid}`);
+  }
+}
+
+export async function batchAssignMembersToPartners(params: {
+  actor: UserProfile;
+  assignments: Array<{
+    member: UserProfile;
+    partner: UserProfile;
+  }>;
+  mode: 'manual' | 'auto';
+}): Promise<number> {
+  const { actor, assignments, mode } = params;
+  if (assignments.length === 0) return 0;
+
+  let completed = 0;
+  for (const item of assignments) {
+    const isReassignment =
+      Boolean(item.member.partnerId) && item.member.partnerId !== item.partner.uid;
+
+    await adminUpdateUser({
+      actor,
+      target: item.member,
+      role: 'member',
+      status: item.member.status,
+      cohortId: item.member.cohortId,
+      cohortName: item.member.cohortName,
+      partnerId: item.partner.uid,
+      partnerName: item.partner.displayName,
+      stateCode: item.member.stateCode,
+      ppa: item.member.ppa,
+      department: item.member.department,
+      skipDefaultAuditLog: true,
+    });
+
+    await recordAuditEvent({
+      actorId: actor.uid,
+      actorName: actor.displayName,
+      actorRole: normalizeRole(actor.role),
+      action:
+        mode === 'auto'
+          ? 'MEMBER_AUTO_ASSIGNED'
+          : isReassignment
+            ? 'MEMBER_REASSIGNED_TO_PARTNER'
+            : 'MEMBER_ASSIGNED_TO_PARTNER',
+      category: 'rbac',
+      severity: 'info',
+      targetType: 'member_assignment',
+      targetId: item.member.uid,
+      summary: `${
+        mode === 'auto'
+          ? 'Auto-assigned'
+          : isReassignment
+            ? `Reassigned (from ${item.member.partnerName || 'previous partner'})`
+            : 'Assigned'
+      } Corps Member ${item.member.displayName} to Accountability Partner ${item.partner.displayName}.`,
+    });
+
+    completed += 1;
+  }
+
+  if (mode === 'auto' && completed > 0) {
+    await recordAuditEvent({
+      actorId: actor.uid,
+      actorName: actor.displayName,
+      actorRole: normalizeRole(actor.role),
+      action: 'AUTO_ASSIGNMENT_COMPLETED',
+      category: 'rbac',
+      severity: 'info',
+      targetType: 'partner_assignments',
+      targetId: `auto_${completed}`,
+      summary: `Completed automatic caseload distribution for ${completed} unassigned Corps Member(s).`,
+    });
+  }
+
+  return completed;
 }
 
 export async function fetchUserPrivateInfoMap(
@@ -1050,6 +1348,7 @@ export async function adminUpdateUser(params: {
   stateCode: string;
   ppa: string;
   department: string;
+  skipDefaultAuditLog?: boolean;
 }): Promise<void> {
   const { actor, target } = params;
   try {
@@ -1137,17 +1436,19 @@ export async function adminUpdateUser(params: {
       ]);
     }
 
-    await recordAuditEvent({
-      actorId: actor.uid,
-      actorName: actor.displayName,
-      actorRole: normalizeRole(actor.role),
-      action: normalizeRole(target.role) !== params.role ? 'ROLE_CHANGED' : 'USER_UPDATED',
-      category: 'rbac',
-      severity: normalizeRole(target.role) !== params.role || target.status !== params.status ? 'critical' : 'info',
-      targetType: 'user',
-      targetId: target.uid,
-      summary: `Updated ${target.displayName}: role=${params.role}, status=${params.status}, cohort=${params.cohortName || 'None'}, partner=${params.partnerName || 'None'}.`,
-    });
+    if (!params.skipDefaultAuditLog) {
+      await recordAuditEvent({
+        actorId: actor.uid,
+        actorName: actor.displayName,
+        actorRole: normalizeRole(actor.role),
+        action: normalizeRole(target.role) !== params.role ? 'ROLE_CHANGED' : 'USER_UPDATED',
+        category: 'rbac',
+        severity: normalizeRole(target.role) !== params.role || target.status !== params.status ? 'critical' : 'info',
+        targetType: 'user',
+        targetId: target.uid,
+        summary: `Updated ${target.displayName}: role=${params.role}, status=${params.status}, cohort=${params.cohortName || 'None'}, partner=${params.partnerName || 'None'}.`,
+      });
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `users/${target.uid}`);
   }

@@ -66,6 +66,10 @@ function formatAuthError(err: unknown): string {
   if (raw.includes('auth/invalid-action-code') || raw.includes('auth/expired-action-code')) {
     return 'This password reset link is invalid or has expired. Request a new link.';
   }
+  if (raw.includes('auth/unauthorized-domain')) {
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'your Vercel domain';
+    return `Domain "${host}" is not authorized for Firebase Authentication yet. Add "${host}" in Firebase Console → Authentication → Settings → Authorized domains (or use Email/Password sign-in while configuring your Firebase project).`;
+  }
   return raw;
 }
 
