@@ -1,0 +1,6 @@
+{
+  "name": "CII Accountability Tracker",
+  "description": "Enterprise accountability and real-time user engagement platform with role-based access control, interactive analytics, CSV/PDF exports, and immutable audit logging.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

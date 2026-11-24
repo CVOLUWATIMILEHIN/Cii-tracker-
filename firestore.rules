@@ -1,0 +1,1025 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function callerDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasActiveUserDoc() {
+      return isVerified()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && callerDoc().status == 'active';
+    }
+
+    // Server-side-only project owner verification for one-time initial Super Admin activation.
+    // Respects deactivation: if a user document already exists, its status must be 'active'.
+    function isProjectOwnerBootstrap() {
+      return isVerified()
+        && request.auth.token.email.lower() == 'olosundelouis@gmail.com'
+        && (!exists(/databases/$(database)/documents/users/$(request.auth.uid)) || callerDoc().status == 'active');
+    }
+
+    // 4-Tier Administrative Role Hierarchy + Standard Roles
+    function isSuperAdmin() {
+      return hasActiveUserDoc() && callerDoc().role == 'super_admin';
+    }
+
+    function isAdmin() {
+      return hasActiveUserDoc() && callerDoc().role == 'admin';
+    }
+
+    function isFullAdmin() {
+      return isSuperAdmin() || isAdmin();
+    }
+
+    function isProgrammeManager() {
+      return hasActiveUserDoc() && callerDoc().role == 'programme_manager';
+    }
+
+    function isReviewer() {
+      return hasActiveUserDoc() && callerDoc().role == 'reviewer';
+    }
+
+    function isScopedAdmin() {
+      return isProgrammeManager() || isReviewer();
+    }
+
+    function isPartner() {
+      return hasActiveUserDoc() && (callerDoc().role == 'partner' || callerDoc().role == 'editor');
+    }
+
+    function isMember() {
+      return hasActiveUserDoc() && (callerDoc().role == 'member' || callerDoc().role == 'user');
+    }
+
+    function isNonAdminRole(roleVal) {
+      return roleVal in ['member', 'partner', 'user', 'editor'];
+    }
+
+    function inAssignedCohorts(cid) {
+      return cid is string
+        && cid != ''
+        && 'assignedCohortIds' in callerDoc()
+        && callerDoc().assignedCohortIds is list
+        && cid in callerDoc().assignedCohortIds;
+    }
+
+    function isValidCohortIdList(listVal) {
+      return listVal is list
+        && listVal.size() <= 20
+        && (listVal.size() == 0 || (listVal[0] is string && isValidId(listVal[0])));
+    }
+
+    function partnerCanApproveReports() {
+      return exists(/databases/$(database)/documents/settings/programme)
+        && get(/databases/$(database)/documents/settings/programme).data.partnerCanApproveReports == true;
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'role', 'status', 'cohortId', 'cohortName',
+          'assignedCohortIds', 'partnerId', 'partnerName', 'stateCode', 'ppa',
+          'department', 'inviteCode', 'lastLoginAt', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'role', 'status', 'cohortId', 'cohortName',
+          'assignedCohortIds', 'partnerId', 'partnerName', 'stateCode', 'ppa',
+          'department', 'inviteCode', 'lastLoginAt', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.role is string && data.role in ['super_admin', 'admin', 'programme_manager', 'reviewer', 'partner', 'member', 'editor', 'user']
+        && data.status is string && data.status in ['active', 'inactive', 'suspended', 'pending']
+        && data.cohortId is string && data.cohortId.size() <= 128
+        && data.cohortName is string && data.cohortName.size() <= 100
+        && isValidCohortIdList(data.assignedCohortIds)
+        && data.partnerId is string && data.partnerId.size() <= 128
+        && data.partnerName is string && data.partnerName.size() <= 100
+        && data.stateCode is string && data.stateCode.size() <= 32
+        && data.ppa is string && data.ppa.size() <= 120
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 64
+        && data.inviteCode is string && data.inviteCode.size() <= 40
+        && (data.lastLoginAt == null || data.lastLoginAt is timestamp)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'phone', 'lastActiveAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'phone', 'lastActiveAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.phone is string && data.phone.size() <= 32
+        && data.lastActiveAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvitation(data, inviteId) {
+      return data.keys().hasAll([
+          'id', 'email', 'displayName', 'role', 'cohortId', 'cohortName',
+          'partnerId', 'partnerName', 'stateCode', 'ppa', 'status',
+          'claimedBy', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'email', 'displayName', 'role', 'cohortId', 'cohortName',
+          'assignedCohortIds', 'partnerId', 'partnerName', 'stateCode', 'ppa',
+          'department', 'status', 'claimedBy', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == inviteId && isValidId(data.id)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.role is string && data.role in ['super_admin', 'admin', 'programme_manager', 'reviewer', 'partner', 'member']
+        && data.cohortId is string && data.cohortId.size() <= 128
+        && data.cohortName is string && data.cohortName.size() <= 100
+        && (!('assignedCohortIds' in data) || isValidCohortIdList(data.assignedCohortIds))
+        && data.partnerId is string && data.partnerId.size() <= 128
+        && data.partnerName is string && data.partnerName.size() <= 100
+        && data.stateCode is string && data.stateCode.size() <= 32
+        && data.ppa is string && data.ppa.size() <= 120
+        && (!('department' in data) || (data.department is string && data.department.size() <= 64))
+        && data.status is string && data.status in ['pending', 'claimed', 'revoked']
+        && data.claimedBy is string && data.claimedBy.size() <= 128
+        && data.createdBy is string && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCohort(data, cohortId) {
+      return data.keys().hasAll(['id', 'code', 'name', 'description', 'startDate', 'endDate', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'code', 'name', 'description', 'startDate', 'endDate', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == cohortId && isValidId(data.id)
+        && data.code is string && data.code.size() >= 2 && data.code.size() <= 24 && data.code.matches('^[A-Z0-9\\-]+$')
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.description is string && data.description.size() <= 500
+        && data.startDate is string && data.startDate.size() == 10 && data.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.endDate is string && data.endDate.size() == 10 && data.endDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.status is string && data.status in ['active', 'archived']
+        && data.createdBy is string && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAssignedMembers(listVal) {
+      return listVal is list
+        && listVal.size() <= 50
+        && (listVal.size() == 0 || (listVal[0] is string && isValidId(listVal[0])));
+    }
+
+    function isValidActivity(data, activityId) {
+      return data.keys().hasAll([
+          'id', 'code', 'title', 'description', 'instructions', 'pillar',
+          'cohortId', 'cohortName', 'assignmentScope', 'assignedMemberIds',
+          'deadline', 'evidenceRequired', 'reviewRequired', 'status',
+          'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'code', 'title', 'description', 'instructions', 'pillar',
+          'cohortId', 'cohortName', 'assignmentScope', 'assignedMemberIds',
+          'deadline', 'evidenceRequired', 'reviewRequired', 'status',
+          'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == activityId && isValidId(data.id)
+        && data.code is string && data.code.size() >= 3 && data.code.size() <= 24 && data.code.matches('^[A-Z0-9\\-]+$')
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 140
+        && data.description is string && data.description.size() <= 1000
+        && data.instructions is string && data.instructions.size() <= 2000
+        && data.pillar is string && data.pillar in ['Governance', 'Infrastructure', 'Sustainability', 'Community', 'Security']
+        && data.cohortId is string && data.cohortId.size() <= 128
+        && data.cohortName is string && data.cohortName.size() <= 100
+        && data.assignmentScope is string && data.assignmentScope in ['all', 'cohort', 'selected']
+        && isValidAssignedMembers(data.assignedMemberIds)
+        && data.deadline is string && data.deadline.size() == 10 && data.deadline.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.evidenceRequired is bool
+        && data.reviewRequired is bool
+        && data.status is string && data.status in ['draft', 'published', 'archived']
+        && data.createdBy is string && isValidId(data.createdBy)
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSubmission(data, submissionId) {
+      return data.keys().hasAll([
+          'id', 'activityId', 'activityTitle', 'memberId', 'memberName',
+          'cohortId', 'partnerId', 'progress', 'responseText', 'evidenceUrl', 'evidenceName',
+          'status', 'feedbackText', 'reviewedBy', 'reviewedByName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'activityId', 'activityTitle', 'memberId', 'memberName',
+          'cohortId', 'partnerId', 'progress', 'responseText', 'evidenceUrl', 'evidenceName',
+          'status', 'feedbackText', 'reviewedBy', 'reviewedByName', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == submissionId && isValidId(data.id)
+        && data.activityId is string && isValidId(data.activityId)
+        && data.activityTitle is string && data.activityTitle.size() >= 1 && data.activityTitle.size() <= 140
+        && data.memberId is string && isValidId(data.memberId)
+        && data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 100
+        && data.cohortId is string && data.cohortId.size() <= 128
+        && data.partnerId is string && data.partnerId.size() <= 128
+        && (data.progress is int || data.progress is float) && data.progress >= 0 && data.progress <= 100
+        && data.responseText is string && data.responseText.size() <= 2000
+        && data.evidenceUrl is string
+        && data.evidenceUrl.size() <= 500
+        && (data.evidenceUrl == '' || data.evidenceUrl.matches('^https://.*') || data.evidenceUrl.matches('^http://.*'))
+        && data.evidenceName is string && data.evidenceName.size() <= 160
+        && data.status is string && data.status in ['in_progress', 'submitted', 'under_review', 'revision_requested', 'approved']
+        && data.feedbackText is string && data.feedbackText.size() <= 1000
+        && data.reviewedBy is string && data.reviewedBy.size() <= 128
+        && data.reviewedByName is string && data.reviewedByName.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDailyCheckin(data, checkinId) {
+      return data.keys().hasAll([
+          'id', 'memberId', 'memberName', 'cohortId', 'partnerId',
+          'checkinDate', 'status', 'updateText', 'followUpRequested', 'flaggedForAdmin',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'memberId', 'memberName', 'cohortId', 'partnerId',
+          'checkinDate', 'status', 'updateText', 'followUpRequested', 'flaggedForAdmin',
+          'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == checkinId && isValidId(data.id)
+        && data.memberId is string && isValidId(data.memberId)
+        && data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 100
+        && data.cohortId is string && data.cohortId.size() <= 128
+        && data.partnerId is string && data.partnerId.size() <= 128
+        && data.checkinDate is string && data.checkinDate.size() == 10 && data.checkinDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.status is string && data.status in ['on_track', 'need_support', 'blocked']
+        && data.updateText is string && data.updateText.size() <= 600
+        && data.followUpRequested is bool
+        && data.flaggedForAdmin is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWeeklyReport(data, reportId) {
+      return data.keys().hasAll([
+          'id', 'memberId', 'memberName', 'cohortId', 'partnerId',
+          'weekKey', 'weekLabel', 'achievements', 'challenges', 'learnings', 'nextWeekPriorities',
+          'status', 'feedbackText', 'reviewedBy', 'reviewedByName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'memberId', 'memberName', 'cohortId', 'partnerId',
+          'weekKey', 'weekLabel', 'achievements', 'challenges', 'learnings', 'nextWeekPriorities',
+          'status', 'feedbackText', 'reviewedBy', 'reviewedByName', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == reportId && isValidId(data.id)
+        && data.memberId is string && isValidId(data.memberId)
+        && data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 100
+        && data.cohortId is string && data.cohortId.size() <= 128
+        && data.partnerId is string && data.partnerId.size() <= 128
+        && data.weekKey is string && data.weekKey.size() == 8 && data.weekKey.matches('^[0-9]{4}-W[0-9]{2}$')
+        && data.weekLabel is string && data.weekLabel.size() >= 3 && data.weekLabel.size() <= 64
+        && data.achievements is string && data.achievements.size() <= 1500
+        && data.challenges is string && data.challenges.size() <= 1500
+        && data.learnings is string && data.learnings.size() <= 1500
+        && data.nextWeekPriorities is string && data.nextWeekPriorities.size() <= 1500
+        && data.status is string && data.status in ['draft', 'submitted', 'under_review', 'revision_requested', 'reviewed']
+        && data.feedbackText is string && data.feedbackText.size() <= 1000
+        && data.reviewedBy is string && data.reviewedBy.size() <= 128
+        && data.reviewedByName is string && data.reviewedByName.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFollowUp(data, followUpId) {
+      return data.keys().hasAll([
+          'id', 'partnerId', 'partnerName', 'memberId', 'memberName',
+          'sourceType', 'sourceId', 'note', 'actionTaken', 'status',
+          'flaggedForAdmin', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'partnerId', 'partnerName', 'memberId', 'memberName',
+          'sourceType', 'sourceId', 'note', 'actionTaken', 'status',
+          'flaggedForAdmin', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == followUpId && isValidId(data.id)
+        && data.partnerId is string && isValidId(data.partnerId)
+        && data.partnerName is string && data.partnerName.size() >= 1 && data.partnerName.size() <= 100
+        && data.memberId is string && isValidId(data.memberId)
+        && data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 100
+        && data.sourceType is string && data.sourceType in ['checkin', 'report', 'manual']
+        && data.sourceId is string && data.sourceId.size() <= 128
+        && data.note is string && data.note.size() >= 1 && data.note.size() <= 800
+        && data.actionTaken is string && data.actionTaken.size() <= 800
+        && data.status is string && data.status in ['open', 'resolved']
+        && data.flaggedForAdmin is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAnnouncement(data, announcementId) {
+      return data.keys().hasAll(['id', 'title', 'body', 'targetRole', 'cohortId', 'priority', 'createdBy', 'createdByName', 'createdAt'])
+        && data.keys().hasOnly(['id', 'title', 'body', 'targetRole', 'cohortId', 'priority', 'createdBy', 'createdByName', 'createdAt'])
+        && data.id is string && data.id == announcementId && isValidId(data.id)
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 140
+        && data.body is string && data.body.size() >= 3 && data.body.size() <= 1500
+        && data.targetRole is string && data.targetRole in ['all', 'member', 'partner']
+        && data.cohortId is string && data.cohortId.size() <= 128
+        && data.priority is string && data.priority in ['normal', 'important']
+        && data.createdBy is string && isValidId(data.createdBy)
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 100
+        && data.createdAt is timestamp;
+    }
+
+    function isValidNotification(data, notifId) {
+      return data.keys().hasAll(['id', 'recipientId', 'title', 'message', 'type', 'linkPath', 'read', 'createdAt'])
+        && data.keys().hasOnly(['id', 'recipientId', 'title', 'message', 'type', 'linkPath', 'read', 'createdAt'])
+        && data.id is string && data.id == notifId && isValidId(data.id)
+        && data.recipientId is string && isValidId(data.recipientId)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 140
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 400
+        && data.type is string && data.type in ['activation', 'activity', 'deadline', 'checkin', 'report', 'feedback', 'revision', 'announcement', 'partner']
+        && data.linkPath is string && data.linkPath.size() <= 140
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSettings(data, settingId) {
+      return data.keys().hasAll(['id', 'partnerCanApproveReports', 'weeklyReportDueDay', 'inactivityThresholdDays', 'emailProviderNote', 'updatedBy', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'partnerCanApproveReports', 'weeklyReportDueDay', 'inactivityThresholdDays', 'emailProviderNote', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == settingId && data.id == 'programme'
+        && data.partnerCanApproveReports is bool
+        && data.weeklyReportDueDay is string && data.weeklyReportDueDay.size() >= 3 && data.weeklyReportDueDay.size() <= 24
+        && (data.inactivityThresholdDays is int || data.inactivityThresholdDays is float) && data.inactivityThresholdDays >= 1 && data.inactivityThresholdDays <= 30
+        && data.emailProviderNote is string && data.emailProviderNote.size() <= 300
+        && data.updatedBy is string && isValidId(data.updatedBy)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll(['id', 'actorId', 'actorName', 'actorRole', 'action', 'category', 'severity', 'targetType', 'targetId', 'summary', 'createdAt'])
+        && data.keys().hasOnly(['id', 'actorId', 'actorName', 'actorRole', 'action', 'category', 'severity', 'targetType', 'targetId', 'summary', 'createdAt'])
+        && data.id is string && data.id == logId && isValidId(data.id)
+        && data.actorId is string && isValidId(data.actorId)
+        && data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 100
+        && data.actorRole is string && data.actorRole in ['super_admin', 'admin', 'programme_manager', 'reviewer', 'partner', 'member', 'editor', 'user']
+        && data.action is string && data.action.size() >= 2 && data.action.size() <= 64
+        && data.category is string && data.category in ['auth', 'activity', 'checkin', 'report', 'rbac', 'cohort', 'announcement', 'export', 'settings']
+        && data.severity is string && data.severity in ['info', 'warning', 'critical']
+        && data.targetType is string && data.targetType.size() >= 2 && data.targetType.size() <= 32
+        && data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128
+        && data.summary is string && data.summary.size() >= 3 && data.summary.size() <= 280
+        && data.createdAt is timestamp;
+    }
+
+    // 4. Collection Match Blocks
+
+    // Public-safe user directory & RBAC roles
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (
+        isOwner(userId) ||
+        isFullAdmin() ||
+        (isScopedAdmin() && inAssignedCohorts(existing().cohortId)) ||
+        (isPartner() && (existing().partnerId == request.auth.uid || existing().uid == request.auth.uid)) ||
+        (hasActiveUserDoc() && callerDoc().partnerId == userId)
+      );
+
+      allow list: if isSignedIn() && (
+        isFullAdmin() ||
+        (isScopedAdmin() && 'assignedCohortIds' in callerDoc() && resource.data.cohortId in callerDoc().assignedCohortIds) ||
+        (isPartner() && resource.data.partnerId == request.auth.uid)
+      );
+
+      allow create: if isVerified()
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          (isOwner(userId)
+            && isProjectOwnerBootstrap()
+            && incoming().role == 'super_admin'
+            && incoming().status == 'active'
+            && incoming().assignedCohortIds.size() == 0) ||
+          (isOwner(userId)
+            && incoming().inviteCode != ''
+            && exists(/databases/$(database)/documents/invitations/$(incoming().inviteCode))
+            && get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.email.lower() == request.auth.token.email.lower()
+            && (
+              get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.status == 'pending' ||
+              (get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.status == 'claimed'
+                && get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.claimedBy == request.auth.uid)
+            )
+            && incoming().role == get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.role
+            && incoming().cohortId == get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.cohortId
+            && incoming().partnerId == get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.partnerId
+            && (
+              (!('assignedCohortIds' in get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data)
+                && incoming().assignedCohortIds.size() == 0) ||
+              ('assignedCohortIds' in get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data
+                && incoming().assignedCohortIds == get(/databases/$(database)/documents/invitations/$(incoming().inviteCode)).data.assignedCohortIds)
+            )
+            && incoming().status == 'active') ||
+          (isOwner(userId)
+            && incoming().inviteCode == ''
+            && incoming().role == 'member'
+            && incoming().status == 'active'
+            && incoming().cohortId == ''
+            && incoming().partnerId == ''
+            && incoming().assignedCohortIds.size() == 0)
+        );
+
+      allow update: if isVerified()
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && (!('uid' in existing()) || incoming().uid == existing().uid)
+        && (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt)
+        && incoming().updatedAt == request.time
+        && (
+          // Super Admin can manage any account, but cannot demote or deactivate their own Super Admin account.
+          // This guarantees at least one active Super Admin always remains in the system.
+          (isSuperAdmin()
+            && !(existing().role == 'super_admin'
+              && userId == request.auth.uid
+              && (incoming().role != 'super_admin' || incoming().status != 'active'))) ||
+          // One-time upgrade for existing project owner from legacy 'admin' to 'super_admin'.
+          (isProjectOwnerBootstrap()
+            && isOwner(userId)
+            && existing().role == 'admin'
+            && incoming().role == 'super_admin'
+            && incoming().status == 'active'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'department', 'updatedAt'])) ||
+          // Standard Admin can manage Corps Members & Accountability Partners only (never admin-tier accounts or self).
+          (isAdmin()
+            && userId != request.auth.uid
+            && isNonAdminRole(existing().role)
+            && incoming().role in ['member', 'partner']
+            && incoming().assignedCohortIds.size() == 0) ||
+          // Programme Manager can manage Corps Members & Partners strictly within assigned cohorts.
+          (isProgrammeManager()
+            && userId != request.auth.uid
+            && isNonAdminRole(existing().role)
+            && inAssignedCohorts(existing().cohortId)
+            && incoming().role in ['member', 'partner']
+            && inAssignedCohorts(incoming().cohortId)
+            && incoming().assignedCohortIds.size() == 0) ||
+          // Owner schema backfill migration (strictly preserves role, status, cohortId, partnerId, and empty assignedCohortIds).
+          (isOwner(userId)
+            && (!('status' in existing()) || !('assignedCohortIds' in existing()) || !('lastLoginAt' in existing()))
+            && ((!('status' in existing()) && incoming().status == 'active') || ('status' in existing() && incoming().status == existing().status))
+            && incoming().assignedCohortIds.size() == 0
+            && (
+              ('role' in existing() && incoming().role == existing().role) ||
+              ('role' in existing() && existing().role == 'editor' && incoming().role == 'partner') ||
+              ('role' in existing() && existing().role == 'user' && incoming().role == 'member') ||
+              (!('role' in existing()) && incoming().role == 'member')
+            )
+            && (!('cohortId' in existing()) || incoming().cohortId == existing().cohortId)
+            && (!('partnerId' in existing()) || incoming().partnerId == existing().partnerId)) ||
+          // Active owner self-profile and lastLoginAt updates only.
+          (isOwner(userId)
+            && existing().status == 'active'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'stateCode', 'ppa', 'department', 'lastLoginAt', 'updatedAt'
+            ]))
+        );
+
+      allow delete: if false;
+
+      // Isolated PII subcollection
+      match /private/{docId} {
+        allow get: if isSignedIn() && isValidId(userId) && docId == 'info' && (isOwner(userId) || isFullAdmin());
+        allow list: if false;
+
+        allow create: if isVerified()
+          && isValidId(userId)
+          && docId == 'info'
+          && isOwner(userId)
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().lastActiveAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if isVerified()
+          && isValidId(userId)
+          && docId == 'info'
+          && isOwner(userId)
+          && isValidUserPrivateInfo(incoming(), userId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).addedKeys().hasOnly(['uid', 'email', 'phone', 'lastActiveAt', 'updatedAt'])
+          && incoming().diff(existing()).changedKeys().hasOnly(['email', 'phone', 'lastActiveAt', 'updatedAt']);
+
+        allow delete: if false;
+      }
+    }
+
+    // Account activation invitations
+    match /invitations/{inviteId} {
+      allow get: if isVerified() && isValidId(inviteId) && (
+        isFullAdmin() ||
+        (isProgrammeManager() && inAssignedCohorts(existing().cohortId)) ||
+        existing().email.lower() == request.auth.token.email.lower()
+      );
+      allow list: if isVerified() && (
+        isFullAdmin() ||
+        (isProgrammeManager() && 'assignedCohortIds' in callerDoc() && resource.data.cohortId in callerDoc().assignedCohortIds) ||
+        resource.data.email == request.auth.token.email.lower()
+      );
+
+      allow create: if isVerified()
+        && isValidId(inviteId)
+        && isValidInvitation(incoming(), inviteId)
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          (isAdmin()
+            && incoming().role in ['member', 'partner']
+            && (!('assignedCohortIds' in incoming()) || incoming().assignedCohortIds.size() == 0)) ||
+          (isProgrammeManager()
+            && incoming().role in ['member', 'partner']
+            && inAssignedCohorts(incoming().cohortId)
+            && (!('assignedCohortIds' in incoming()) || incoming().assignedCohortIds.size() == 0))
+        );
+
+      allow update: if isVerified()
+        && isValidId(inviteId)
+        && isValidInvitation(incoming(), inviteId)
+        && incoming().id == existing().id
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin() ||
+          (isAdmin()
+            && existing().role in ['member', 'partner']
+            && incoming().role in ['member', 'partner']) ||
+          (isProgrammeManager()
+            && existing().role in ['member', 'partner']
+            && inAssignedCohorts(existing().cohortId)
+            && incoming().role in ['member', 'partner']
+            && inAssignedCohorts(incoming().cohortId)) ||
+          (existing().email.lower() == request.auth.token.email.lower()
+            && existing().status == 'pending'
+            && incoming().status == 'claimed'
+            && incoming().claimedBy == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'claimedBy', 'updatedAt']))
+        );
+
+      allow delete: if isVerified() && isValidId(inviteId) && isSuperAdmin();
+    }
+
+    // Cohorts
+    match /cohorts/{cohortId} {
+      allow get: if isSignedIn() && (
+        isFullAdmin() ||
+        isMember() ||
+        isPartner() ||
+        (isScopedAdmin() && inAssignedCohorts(cohortId))
+      );
+
+      allow list: if isSignedIn() && (
+        isFullAdmin() ||
+        isMember() ||
+        isPartner() ||
+        (isScopedAdmin() && 'assignedCohortIds' in callerDoc() && resource.data.id in callerDoc().assignedCohortIds)
+      );
+
+      allow create: if isVerified()
+        && isValidId(cohortId)
+        && isValidCohort(incoming(), cohortId)
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isFullAdmin();
+
+      allow update: if isVerified()
+        && isValidId(cohortId)
+        && isValidCohort(incoming(), cohortId)
+        && incoming().id == existing().id
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isFullAdmin() || (isProgrammeManager() && inAssignedCohorts(cohortId)));
+
+      allow delete: if isVerified() && isValidId(cohortId) && isFullAdmin();
+    }
+
+    // Activities
+    match /activities/{activityId} {
+      allow get: if isSignedIn() && isValidId(activityId) && (
+        isFullAdmin() ||
+        isPartner() ||
+        (isScopedAdmin() && inAssignedCohorts(existing().cohortId)) ||
+        (isMember() && existing().status == 'published')
+      );
+
+      allow list: if isSignedIn() && (
+        isFullAdmin() ||
+        isPartner() ||
+        (isScopedAdmin() && 'assignedCohortIds' in callerDoc() && resource.data.cohortId in callerDoc().assignedCohortIds) ||
+        (isMember() && resource.data.status == 'published')
+      );
+
+      allow create: if isVerified()
+        && isValidId(activityId)
+        && isValidActivity(incoming(), activityId)
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isFullAdmin() ||
+          (isProgrammeManager() && incoming().assignmentScope != 'all' && inAssignedCohorts(incoming().cohortId))
+        );
+
+      allow update: if isVerified()
+        && isValidId(activityId)
+        && isValidActivity(incoming(), activityId)
+        && incoming().id == existing().id
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isFullAdmin() ||
+          (isProgrammeManager()
+            && inAssignedCohorts(existing().cohortId)
+            && incoming().assignmentScope != 'all'
+            && inAssignedCohorts(incoming().cohortId))
+        );
+
+      allow delete: if isVerified() && isValidId(activityId) && (
+        isFullAdmin() ||
+        (isProgrammeManager() && inAssignedCohorts(existing().cohortId))
+      );
+    }
+
+    // Activity submissions
+    match /activity_submissions/{submissionId} {
+      allow get: if isSignedIn() && isValidId(submissionId) && (
+        isFullAdmin() ||
+        existing().memberId == request.auth.uid ||
+        (isPartner() && existing().partnerId == request.auth.uid) ||
+        (isScopedAdmin() && inAssignedCohorts(existing().cohortId))
+      );
+
+      allow list: if isSignedIn() && (
+        isFullAdmin() ||
+        resource.data.memberId == request.auth.uid ||
+        (isPartner() && resource.data.partnerId == request.auth.uid) ||
+        (isScopedAdmin() && 'assignedCohortIds' in callerDoc() && resource.data.cohortId in callerDoc().assignedCohortIds)
+      );
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidId(submissionId)
+        && isValidSubmission(incoming(), submissionId)
+        && submissionId == incoming().activityId + '_' + request.auth.uid
+        && incoming().memberId == request.auth.uid
+        && incoming().partnerId == callerDoc().partnerId
+        && incoming().cohortId == callerDoc().cohortId
+        && incoming().status in ['in_progress', 'submitted']
+        && incoming().feedbackText == ''
+        && incoming().reviewedBy == ''
+        && incoming().reviewedByName == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/activities/$(incoming().activityId))
+        && get(/databases/$(database)/documents/activities/$(incoming().activityId)).data.status == 'published';
+
+      allow update: if isVerified()
+        && isValidId(submissionId)
+        && isValidSubmission(incoming(), submissionId)
+        && incoming().id == existing().id
+        && incoming().activityId == existing().activityId
+        && incoming().memberId == existing().memberId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isFullAdmin() ||
+          (existing().memberId == request.auth.uid
+            && existing().status != 'approved'
+            && incoming().status in ['in_progress', 'submitted']
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'progress', 'responseText', 'evidenceUrl', 'evidenceName', 'status', 'updatedAt'
+            ])) ||
+          (isPartner()
+            && existing().partnerId == request.auth.uid
+            && existing().status != 'approved'
+            && incoming().status in ['under_review', 'revision_requested', 'approved']
+            && (incoming().status != 'approved' || partnerCanApproveReports())
+            && incoming().reviewedBy == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'feedbackText', 'reviewedBy', 'reviewedByName', 'updatedAt'
+            ])) ||
+          (isScopedAdmin()
+            && inAssignedCohorts(existing().cohortId)
+            && existing().status != 'approved'
+            && incoming().status in ['under_review', 'revision_requested', 'approved']
+            && incoming().reviewedBy == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'feedbackText', 'reviewedBy', 'reviewedByName', 'updatedAt'
+            ])) ||
+          (isProgrammeManager()
+            && inAssignedCohorts(existing().cohortId)
+            && inAssignedCohorts(incoming().cohortId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'partnerId', 'cohortId', 'updatedAt'
+            ]))
+        );
+
+      allow delete: if isVerified() && isValidId(submissionId) && isFullAdmin();
+    }
+
+    // Daily check-ins
+    match /daily_checkins/{checkinId} {
+      allow get: if isSignedIn() && isValidId(checkinId) && (
+        isFullAdmin() ||
+        existing().memberId == request.auth.uid ||
+        (isPartner() && existing().partnerId == request.auth.uid) ||
+        (isScopedAdmin() && inAssignedCohorts(existing().cohortId))
+      );
+
+      allow list: if isSignedIn() && (
+        isFullAdmin() ||
+        resource.data.memberId == request.auth.uid ||
+        (isPartner() && resource.data.partnerId == request.auth.uid) ||
+        (isScopedAdmin() && 'assignedCohortIds' in callerDoc() && resource.data.cohortId in callerDoc().assignedCohortIds)
+      );
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidId(checkinId)
+        && isValidDailyCheckin(incoming(), checkinId)
+        && checkinId == request.auth.uid + '_' + incoming().checkinDate
+        && incoming().memberId == request.auth.uid
+        && incoming().partnerId == callerDoc().partnerId
+        && incoming().cohortId == callerDoc().cohortId
+        && incoming().flaggedForAdmin == false
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidId(checkinId)
+        && isValidDailyCheckin(incoming(), checkinId)
+        && incoming().id == existing().id
+        && incoming().memberId == existing().memberId
+        && incoming().checkinDate == existing().checkinDate
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isFullAdmin() ||
+          (existing().memberId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'updateText', 'followUpRequested', 'updatedAt'
+            ])) ||
+          (isPartner()
+            && existing().partnerId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'flaggedForAdmin', 'updatedAt'
+            ])) ||
+          (isProgrammeManager()
+            && inAssignedCohorts(existing().cohortId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'flaggedForAdmin', 'updatedAt'
+            ])) ||
+          (isProgrammeManager()
+            && inAssignedCohorts(existing().cohortId)
+            && inAssignedCohorts(incoming().cohortId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'partnerId', 'cohortId', 'updatedAt'
+            ]))
+        );
+
+      allow delete: if isVerified() && isValidId(checkinId) && isFullAdmin();
+    }
+
+    // Weekly reports
+    match /weekly_reports/{reportId} {
+      allow get: if isSignedIn() && isValidId(reportId) && (
+        isFullAdmin() ||
+        existing().memberId == request.auth.uid ||
+        (isPartner() && existing().partnerId == request.auth.uid) ||
+        (isScopedAdmin() && inAssignedCohorts(existing().cohortId))
+      );
+
+      allow list: if isSignedIn() && (
+        isFullAdmin() ||
+        resource.data.memberId == request.auth.uid ||
+        (isPartner() && resource.data.partnerId == request.auth.uid) ||
+        (isScopedAdmin() && 'assignedCohortIds' in callerDoc() && resource.data.cohortId in callerDoc().assignedCohortIds)
+      );
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidId(reportId)
+        && isValidWeeklyReport(incoming(), reportId)
+        && reportId == request.auth.uid + '_' + incoming().weekKey
+        && incoming().memberId == request.auth.uid
+        && incoming().partnerId == callerDoc().partnerId
+        && incoming().cohortId == callerDoc().cohortId
+        && incoming().status in ['draft', 'submitted']
+        && incoming().feedbackText == ''
+        && incoming().reviewedBy == ''
+        && incoming().reviewedByName == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidId(reportId)
+        && isValidWeeklyReport(incoming(), reportId)
+        && incoming().id == existing().id
+        && incoming().memberId == existing().memberId
+        && incoming().weekKey == existing().weekKey
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isFullAdmin() ||
+          (existing().memberId == request.auth.uid
+            && existing().status in ['draft', 'revision_requested']
+            && incoming().status in ['draft', 'submitted']
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'achievements', 'challenges', 'learnings', 'nextWeekPriorities', 'status', 'updatedAt'
+            ])) ||
+          (isPartner()
+            && existing().partnerId == request.auth.uid
+            && existing().status != 'reviewed'
+            && incoming().status in ['under_review', 'revision_requested', 'reviewed']
+            && (incoming().status != 'reviewed' || partnerCanApproveReports())
+            && incoming().reviewedBy == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'feedbackText', 'reviewedBy', 'reviewedByName', 'updatedAt'
+            ])) ||
+          (isScopedAdmin()
+            && inAssignedCohorts(existing().cohortId)
+            && existing().status != 'reviewed'
+            && incoming().status in ['under_review', 'revision_requested', 'reviewed']
+            && incoming().reviewedBy == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'feedbackText', 'reviewedBy', 'reviewedByName', 'updatedAt'
+            ])) ||
+          (isProgrammeManager()
+            && inAssignedCohorts(existing().cohortId)
+            && inAssignedCohorts(incoming().cohortId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'partnerId', 'cohortId', 'updatedAt'
+            ]))
+        );
+
+      allow delete: if isVerified() && isValidId(reportId) && isFullAdmin();
+    }
+
+    // Follow-up management
+    match /follow_ups/{followUpId} {
+      allow get: if isSignedIn() && isValidId(followUpId) && (
+        isFullAdmin() ||
+        existing().partnerId == request.auth.uid ||
+        existing().memberId == request.auth.uid
+      );
+
+      allow list: if isSignedIn() && (
+        isFullAdmin() ||
+        resource.data.partnerId == request.auth.uid ||
+        resource.data.memberId == request.auth.uid
+      );
+
+      allow create: if isVerified()
+        && isValidId(followUpId)
+        && isValidFollowUp(incoming(), followUpId)
+        && (
+          isFullAdmin() ||
+          (isPartner()
+            && incoming().partnerId == request.auth.uid
+            && exists(/databases/$(database)/documents/users/$(incoming().memberId))
+            && get(/databases/$(database)/documents/users/$(incoming().memberId)).data.partnerId == request.auth.uid)
+        )
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidId(followUpId)
+        && isValidFollowUp(incoming(), followUpId)
+        && incoming().id == existing().id
+        && incoming().partnerId == existing().partnerId
+        && incoming().memberId == existing().memberId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isFullAdmin() || (isPartner() && existing().partnerId == request.auth.uid));
+
+      allow delete: if isVerified() && isValidId(followUpId) && isFullAdmin();
+    }
+
+    // Announcements
+    match /announcements/{announcementId} {
+      allow get, list: if isSignedIn();
+      allow create: if isVerified()
+        && isValidId(announcementId)
+        && isValidAnnouncement(incoming(), announcementId)
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && (
+          isFullAdmin() ||
+          (isProgrammeManager() && inAssignedCohorts(incoming().cohortId))
+        );
+      allow update, delete: if isVerified() && isValidId(announcementId) && (
+        isFullAdmin() ||
+        (isProgrammeManager() && inAssignedCohorts(existing().cohortId))
+      );
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && isValidId(notificationId) && (
+        isFullAdmin() || existing().recipientId == request.auth.uid
+      );
+      allow list: if isSignedIn() && (
+        isFullAdmin() || resource.data.recipientId == request.auth.uid
+      );
+      allow create: if isVerified()
+        && isValidId(notificationId)
+        && isValidNotification(incoming(), notificationId)
+        && incoming().createdAt == request.time
+        && (
+          isFullAdmin() ||
+          incoming().recipientId == request.auth.uid ||
+          (isPartner()
+            && exists(/databases/$(database)/documents/users/$(incoming().recipientId))
+            && get(/databases/$(database)/documents/users/$(incoming().recipientId)).data.partnerId == request.auth.uid) ||
+          (isScopedAdmin()
+            && exists(/databases/$(database)/documents/users/$(incoming().recipientId))
+            && inAssignedCohorts(get(/databases/$(database)/documents/users/$(incoming().recipientId)).data.cohortId)) ||
+          (isMember() && callerDoc().partnerId != '' && incoming().recipientId == callerDoc().partnerId)
+        );
+
+      allow update: if isVerified()
+        && isValidId(notificationId)
+        && isValidNotification(incoming(), notificationId)
+        && incoming().id == existing().id
+        && incoming().recipientId == existing().recipientId
+        && incoming().createdAt == existing().createdAt
+        && (isFullAdmin() || (existing().recipientId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['read'])));
+
+      allow delete: if isVerified() && isValidId(notificationId) && (isFullAdmin() || existing().recipientId == request.auth.uid);
+    }
+
+    // Programme governance settings (Super Admin write-only)
+    match /settings/{settingId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isVerified()
+        && settingId == 'programme'
+        && isValidSettings(incoming(), settingId)
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time
+        && isSuperAdmin();
+      allow delete: if false;
+    }
+
+    // Immutable System Audit Log
+    match /audit_logs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && (
+        isFullAdmin() || existing().actorId == request.auth.uid
+      );
+
+      allow list: if isSignedIn() && (
+        isFullAdmin() ||
+        resource.data.actorId == request.auth.uid
+      );
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidId(logId)
+        && isValidAuditLog(incoming(), logId)
+        && incoming().actorId == request.auth.uid
+        && incoming().createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+  }
+}
