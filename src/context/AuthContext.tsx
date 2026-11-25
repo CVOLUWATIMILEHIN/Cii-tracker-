@@ -2,11 +2,13 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   confirmPasswordReset,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile,
   User,
@@ -69,6 +71,9 @@ function formatAuthError(err: unknown): string {
   if (raw.includes('auth/unauthorized-domain')) {
     const host = typeof window !== 'undefined' ? window.location.hostname : 'your Vercel domain';
     return `Domain "${host}" is not authorized for Firebase Authentication yet. Add "${host}" in Firebase Console → Authentication → Settings → Authorized domains (or use Email/Password sign-in while configuring your Firebase project).`;
+  }
+  if (raw.includes('auth/popup-blocked')) {
+    return 'Your browser blocked the Google sign-in window. Allow popups for this site and try again.';
   }
   return raw;
 }
@@ -154,6 +159,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    // Completes a Google sign-in that fell back to a full-page redirect.
+    getRedirectResult(auth).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes('popup-closed-by-user')) {
+        setAuthError(formatAuthError(err));
+      }
+    });
+  }, []);
+
   const signInWithGoogle = async (inviteCode?: string) => {
     setAuthError(null);
     if (inviteCode) {
@@ -164,9 +179,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes('popup-closed-by-user')) {
-        setAuthError(formatAuthError(err));
+      if (msg.includes('popup-closed-by-user')) {
+        return;
       }
+      if (
+        msg.includes('popup-blocked') ||
+        msg.includes('operation-not-supported-in-this-environment')
+      ) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr) {
+          setAuthError(formatAuthError(redirectErr));
+          return;
+        }
+      }
+      setAuthError(formatAuthError(err));
     }
   };
 
