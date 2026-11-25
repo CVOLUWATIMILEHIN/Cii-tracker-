@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local scratch copy of Firestore rules (use firestore.rules)
+DRAFT_firestore.rules

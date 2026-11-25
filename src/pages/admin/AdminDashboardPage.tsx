@@ -35,6 +35,7 @@ import {
   canManageActivities,
   isFullAdminRole,
   isScopedAdminRole,
+  isSuperAdminRole,
   normalizeRole,
   ROLE_LABELS,
 } from '../../types';
@@ -56,6 +57,7 @@ export function AdminDashboardPage() {
   } = useWorkspace();
 
   const [seeding, setSeeding] = useState(false);
+  const [seedError, setSeedError] = useState<string | null>(null);
   const [bootstrapping, setBootstrapping] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'audit'>('overview');
@@ -184,8 +186,13 @@ export function AdminDashboardPage() {
 
   const handleSeed = async () => {
     setSeeding(true);
+    setSeedError(null);
     try {
       await seedCiiProgrammeData(profile);
+    } catch (err) {
+      setSeedError(
+        err instanceof Error ? err.message : 'Unable to initialize the programme baseline.'
+      );
     } finally {
       setSeeding(false);
     }
@@ -279,18 +286,25 @@ export function AdminDashboardPage() {
                   Initialize Baseline CII Programme Structure
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Create 2 starter cohorts, 4 published CII activities, an opening announcement, and default governance settings in Firestore.
+                  {isSuperAdminRole(role)
+                    ? 'Create 2 starter cohorts, 4 published CII activities, an opening announcement, and default governance settings in Firestore.'
+                    : 'No programme structure exists yet. A Super Admin must initialize the baseline cohorts, activities, announcement, and governance settings.'}
                 </p>
+                {seedError && (
+                  <p className="text-xs text-rose-600 dark:text-rose-400 pt-1">{seedError}</p>
+                )}
               </div>
-              <button
-                type="button"
-                disabled={seeding}
-                onClick={handleSeed}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shrink-0 disabled:opacity-60 cursor-pointer"
-              >
-                <Database className="w-4 h-4" />
-                {seeding ? 'Initializing...' : 'Initialize Baseline Data'}
-              </button>
+              {isSuperAdminRole(role) && (
+                <button
+                  type="button"
+                  disabled={seeding}
+                  onClick={handleSeed}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shrink-0 disabled:opacity-60 cursor-pointer"
+                >
+                  <Database className="w-4 h-4" />
+                  {seeding ? 'Initializing...' : 'Initialize Baseline Data'}
+                </button>
+              )}
             </div>
           )}
 

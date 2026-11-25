@@ -85,7 +85,7 @@ export function MemberDashboardPage() {
         title: s.activityTitle,
         reviewer: s.reviewedByName || 'Reviewer',
         text: s.feedbackText,
-        link: `/activities/${s.activityId}`,
+        link: `/community/cii/activities/${s.activityId}`,
         updatedAt: s.updatedAt,
       }));
     const repFeedback = reports
@@ -95,7 +95,7 @@ export function MemberDashboardPage() {
         title: `Weekly Report (${r.weekLabel})`,
         reviewer: r.reviewedByName || 'Reviewer',
         text: r.feedbackText,
-        link: `/weekly-reports/${r.id}`,
+        link: `/community/cii/weekly-reports/${r.id}`,
         updatedAt: r.updatedAt,
       }));
     return [...subFeedback, ...repFeedback].slice(0, 4);
@@ -119,7 +119,7 @@ export function MemberDashboardPage() {
       breadcrumb="Corps Member /"
       actions={
         <Link
-          to="/check-in"
+          to="/community/cii/check-in"
           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs sm:text-sm font-medium whitespace-nowrap"
         >
           <CalendarCheck className="w-4 h-4 shrink-0" />
@@ -158,14 +158,14 @@ export function MemberDashboardPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               <Link
-                to="/weekly-reports"
+                to="/community/cii/weekly-reports"
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
               >
                 <FileText className="w-3.5 h-3.5" />
                 <span>{currentWeekReport ? 'View Weekly Report' : 'Start Weekly Report'}</span>
               </Link>
               <Link
-                to="/progress"
+                to="/community/cii/progress"
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
               >
                 <span>View Progress</span>
@@ -252,7 +252,7 @@ export function MemberDashboardPage() {
                   </h3>
                 </div>
                 <Link
-                  to="/activities"
+                  to="/community/cii/activities"
                   className="text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:underline"
                 >
                   View all ({assignedActivities.length})
@@ -286,7 +286,7 @@ export function MemberDashboardPage() {
                             </span>
                           </div>
                           <Link
-                            to={`/activities/${act.id}`}
+                            to={`/community/cii/activities/${act.id}`}
                             className="text-sm font-semibold text-slate-900 dark:text-white hover:text-emerald-700 dark:hover:text-emerald-400 block truncate"
                           >
                             {act.title}
@@ -300,7 +300,7 @@ export function MemberDashboardPage() {
                             <span className="text-slate-400">Not Started</span>
                           )}
                           <Link
-                            to={`/activities/${act.id}`}
+                            to={`/community/cii/activities/${act.id}`}
                             className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap"
                           >
                             {sub ? 'Continue' : 'Start'}

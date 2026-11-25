@@ -7,6 +7,7 @@ import {
   CalendarCheck,
   ClipboardCheck,
   ClipboardList,
+  Compass,
   FileCheck2,
   FileText,
   FolderKanban,
@@ -29,7 +30,12 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
-import { CanonicalRole, getDashboardPathForRole, ROLE_LABELS } from '../types';
+import {
+  CanonicalRole,
+  getDashboardPathForRole,
+  isAdminPortalRole,
+  ROLE_LABELS,
+} from '../types';
 
 interface NavLinkItem {
   to: string;
@@ -59,15 +65,17 @@ export function AppShell({
 
   const navByRole: Record<CanonicalRole, NavLinkItem[]> = {
     member: [
-      { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { to: '/activities', label: 'Activities', icon: ClipboardList },
-      { to: '/check-in', label: 'Daily Check-In', icon: CalendarCheck },
-      { to: '/weekly-reports', label: 'Weekly Reports', icon: FileText },
-      { to: '/progress', label: 'Progress', icon: TrendingUp },
+      { to: '/dashboard', label: 'Personal Workspace', icon: Compass },
+      { to: '/community/cii', label: 'CII Dashboard', icon: LayoutDashboard },
+      { to: '/community/cii/activities', label: 'Activities', icon: ClipboardList },
+      { to: '/community/cii/check-in', label: 'Daily Check-In', icon: CalendarCheck },
+      { to: '/community/cii/weekly-reports', label: 'Weekly Reports', icon: FileText },
+      { to: '/community/cii/progress', label: 'Progress', icon: TrendingUp },
       { to: '/notifications', label: 'Notifications', icon: Bell, badge: unreadCount || undefined },
       { to: '/profile', label: 'Profile', icon: UserCircle },
     ],
     partner: [
+      { to: '/dashboard', label: 'Personal Workspace', icon: Compass },
       { to: '/partner', label: 'Partner Overview', icon: LayoutDashboard },
       { to: '/partner/members', label: 'Assigned Members', icon: Users },
       { to: '/partner/check-ins', label: 'Member Check-Ins', icon: CalendarCheck },
@@ -127,11 +135,19 @@ export function AppShell({
     ],
   };
 
-  const links = navByRole[role];
+  const baseLinks = navByRole[role];
+  const links = isAdminPortalRole(role)
+    ? [{ to: '/dashboard', label: 'Personal Workspace', icon: Compass }, ...baseLinks]
+    : baseLinks;
   const email = privateInfo?.email || firebaseUser?.email || '';
 
   const isLinkActive = (to: string) => {
-    if (to === '/dashboard' || to === '/partner' || to === '/admin') {
+    if (
+      to === '/dashboard' ||
+      to === '/partner' ||
+      to === '/admin' ||
+      to === '/community/cii'
+    ) {
       return location.pathname === to;
     }
     return location.pathname === to || location.pathname.startsWith(`${to}/`);
@@ -141,7 +157,7 @@ export function AppShell({
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 w-64">
       <div className="h-16 px-5 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 shrink-0">
         <Link
-          to={getDashboardPathForRole(role)}
+          to={role === 'member' ? '/community/cii' : getDashboardPathForRole(role)}
           onClick={() => setMobileOpen(false)}
           className="flex items-center gap-2 text-sm font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap font-display"
         >

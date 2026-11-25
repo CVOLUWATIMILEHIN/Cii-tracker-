@@ -117,7 +117,8 @@ service cloud.firestore {
           'uid', 'displayName', 'role', 'status', 'cohortId', 'cohortName',
           'assignedCohortIds', 'partnerId', 'partnerName', 'stateCode', 'ppa',
           'department', 'inviteCode', 'phone', 'gender', 'state', 'organisation',
-          'maxCaseload', 'notes', 'lastLoginAt', 'createdAt', 'updatedAt'
+          'maxCaseload', 'notes', 'country', 'profileCategory', 'onboardingPath',
+          'onboardingCompletedAt', 'lastLoginAt', 'createdAt', 'updatedAt'
         ])
         && data.uid is string && data.uid == userId && isValidId(data.uid)
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
@@ -138,6 +139,10 @@ service cloud.firestore {
         && (!('organisation' in data) || (data.organisation is string && data.organisation.size() <= 120))
         && (!('maxCaseload' in data) || ((data.maxCaseload is int || data.maxCaseload is float) && data.maxCaseload >= 0 && data.maxCaseload <= 200))
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500))
+        && (!('country' in data) || (data.country is string && data.country.size() <= 56))
+        && (!('profileCategory' in data) || (data.profileCategory is string && data.profileCategory in ['', 'student', 'employed', 'self_employed', 'coach', 'organisation', 'other']))
+        && (!('onboardingPath' in data) || (data.onboardingPath is string && data.onboardingPath in ['', 'know_goal', 'need_clarity', 'join_community', 'coach', 'business', 'skipped']))
+        && (!('onboardingCompletedAt' in data) || data.onboardingCompletedAt == null || data.onboardingCompletedAt is timestamp)
         && (data.lastLoginAt == null || data.lastLoginAt is timestamp)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -412,6 +417,120 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    // Platform workspace blueprints (Phase 1: personal workspace + goals + planner)
+    function isValidWorkspace(data, workspaceId) {
+      return data.keys().hasAll(['id', 'type', 'name', 'ownerId', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'type', 'name', 'ownerId', 'status', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == workspaceId && isValidId(data.id)
+        && data.type is string && data.type in ['individual', 'community', 'coach', 'business']
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.ownerId is string && isValidId(data.ownerId)
+        && data.status is string && data.status in ['active', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMembership(data, membershipId) {
+      return data.keys().hasAll(['id', 'workspaceId', 'uid', 'role', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'workspaceId', 'uid', 'role', 'status', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == membershipId && isValidId(data.id)
+        && data.workspaceId is string && isValidId(data.workspaceId)
+        && data.uid is string && isValidId(data.uid)
+        && data.role is string && data.role in ['owner', 'member', 'coach', 'client', 'collaborator', 'accountability_partner']
+        && data.status is string && data.status in ['active', 'removed']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGoal(data, goalId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'workspaceId', 'title', 'category', 'why', 'baseline',
+          'targetOutcome', 'successCriteria', 'horizonMonths', 'startDate', 'targetDate',
+          'status', 'progress', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'workspaceId', 'title', 'category', 'why', 'baseline',
+          'targetOutcome', 'successCriteria', 'horizonMonths', 'startDate', 'targetDate',
+          'status', 'progress', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == goalId && isValidId(data.id)
+        && data.ownerId is string && isValidId(data.ownerId)
+        && data.workspaceId is string && isValidId(data.workspaceId)
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 140
+        && data.category is string && data.category in ['Personal Development', 'Career', 'Business', 'Finance', 'Education', 'Health and Lifestyle', 'Relationships', 'Spiritual Growth', 'Custom']
+        && data.why is string && data.why.size() <= 2000
+        && data.baseline is string && data.baseline.size() <= 2000
+        && data.targetOutcome is string && data.targetOutcome.size() <= 2000
+        && data.successCriteria is string && data.successCriteria.size() <= 2000
+        && (data.horizonMonths is int || data.horizonMonths is float)
+        && data.horizonMonths in [1, 3, 6, 12]
+        && data.startDate is string && data.startDate.size() == 10 && data.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.targetDate is string && data.targetDate.size() == 10 && data.targetDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.status is string && data.status in ['active', 'paused', 'completed', 'archived']
+        && (data.progress is int || data.progress is float) && data.progress >= 0 && data.progress <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMilestone(data, milestoneId) {
+      return data.keys().hasAll(['id', 'goalId', 'ownerId', 'title', 'dueDate', 'status', 'order', 'completedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'goalId', 'ownerId', 'title', 'dueDate', 'status', 'order', 'completedAt', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == milestoneId && isValidId(data.id)
+        && data.goalId is string && isValidId(data.goalId)
+        && data.ownerId is string && isValidId(data.ownerId)
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 120
+        && data.dueDate is string && data.dueDate.size() == 10 && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.status is string && data.status in ['pending', 'in_progress', 'completed']
+        && (data.order is int || data.order is float) && data.order >= 0 && data.order <= 500
+        && (data.completedAt == null || data.completedAt is timestamp)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTask(data, taskId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'workspaceId', 'goalId', 'milestoneId', 'title', 'description',
+          'dueDate', 'priority', 'status', 'blockedReason', 'rescheduleReason', 'recurrence',
+          'reminderAt', 'completedAt', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'workspaceId', 'goalId', 'milestoneId', 'title', 'description',
+          'dueDate', 'priority', 'status', 'blockedReason', 'rescheduleReason', 'recurrence',
+          'reminderAt', 'completedAt', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == taskId && isValidId(data.id)
+        && data.ownerId is string && isValidId(data.ownerId)
+        && data.workspaceId is string && isValidId(data.workspaceId)
+        && data.goalId is string && data.goalId.size() <= 128
+        && data.milestoneId is string && data.milestoneId.size() <= 128
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 140
+        && data.description is string && data.description.size() <= 2000
+        && (data.dueDate == '' || (data.dueDate is string && data.dueDate.size() == 10 && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && data.priority is string && data.priority in ['low', 'medium', 'high']
+        && data.status is string && data.status in ['not_started', 'in_progress', 'completed', 'blocked', 'rescheduled']
+        && data.blockedReason is string && data.blockedReason.size() <= 300
+        && data.rescheduleReason is string && data.rescheduleReason.size() <= 300
+        && data.recurrence is string && data.recurrence in ['none', 'daily', 'weekly', 'monthly']
+        && data.reminderAt is string && data.reminderAt.size() <= 25
+        && (data.completedAt == null || data.completedAt is timestamp)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isWorkspaceMemberOf(workspaceId) {
+      return exists(/databases/$(database)/documents/workspace_members/$(workspaceId + '_' + request.auth.uid));
+    }
+
+    function ownsGoal(goalId) {
+      return exists(/databases/$(database)/documents/goals/$(goalId))
+        && get(/databases/$(database)/documents/goals/$(goalId)).data.ownerId == request.auth.uid;
+    }
+
+    function ownsMilestone(milestoneId) {
+      return exists(/databases/$(database)/documents/goal_milestones/$(milestoneId))
+        && get(/databases/$(database)/documents/goal_milestones/$(milestoneId)).data.ownerId == request.auth.uid;
+    }
+
     // 4. Collection Match Blocks
 
     // Public-safe user directory & RBAC roles
@@ -483,10 +602,10 @@ service cloud.firestore {
             && !(existing().role == 'super_admin'
               && userId == request.auth.uid
               && (incoming().role != 'super_admin' || incoming().status != 'active'))) ||
-          // One-time upgrade for existing project owner from legacy 'admin' to 'super_admin'.
+          // One-time upgrade for the verified project owner from a legacy 'admin' or default 'member' account.
           (isProjectOwnerBootstrap()
             && isOwner(userId)
-            && existing().role == 'admin'
+            && existing().role in ['admin', 'member', 'user']
             && incoming().role == 'super_admin'
             && incoming().status == 'active'
             && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'department', 'updatedAt'])) ||
@@ -521,7 +640,8 @@ service cloud.firestore {
           (isOwner(userId)
             && existing().status == 'active'
             && incoming().diff(existing()).affectedKeys().hasOnly([
-              'displayName', 'stateCode', 'ppa', 'department', 'phone', 'gender', 'state', 'organisation', 'notes', 'lastLoginAt', 'updatedAt'
+              'displayName', 'stateCode', 'ppa', 'department', 'phone', 'gender', 'state', 'organisation', 'notes', 'lastLoginAt', 'updatedAt',
+              'country', 'profileCategory', 'onboardingPath', 'onboardingCompletedAt'
             ]))
         );
 
@@ -1034,6 +1154,138 @@ service cloud.firestore {
         && incoming().createdAt == request.time;
 
       allow update, delete: if false;
+    }
+
+    // Platform Workspaces (Phase 1: individual workspaces; other types reserved for later phases)
+    match /workspaces/{workspaceId} {
+      allow get: if isVerified() && isValidId(workspaceId)
+        && (existing().ownerId == request.auth.uid || isWorkspaceMemberOf(workspaceId));
+
+      allow list: if isVerified() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidId(workspaceId)
+        && isValidWorkspace(incoming(), workspaceId)
+        && incoming().type == 'individual'
+        && incoming().ownerId == request.auth.uid
+        && incoming().status == 'active'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && hasActiveUserDoc()
+        && isValidWorkspace(incoming(), workspaceId)
+        && existing().ownerId == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().type == existing().type
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if false;
+    }
+
+    // Workspace membership (Phase 1: self-service owner membership only)
+    match /workspace_members/{membershipId} {
+      allow get: if isVerified() && isValidId(membershipId) && (
+        existing().uid == request.auth.uid
+        || (exists(/databases/$(database)/documents/workspaces/$(existing().workspaceId))
+          && get(/databases/$(database)/documents/workspaces/$(existing().workspaceId)).data.ownerId == request.auth.uid)
+      );
+
+      allow list: if isVerified() && resource.data.uid == request.auth.uid;
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidMembership(incoming(), membershipId)
+        && incoming().uid == request.auth.uid
+        && incoming().role == 'owner'
+        && incoming().status == 'active'
+        && membershipId == incoming().workspaceId + '_' + request.auth.uid
+        && exists(/databases/$(database)/documents/workspaces/$(incoming().workspaceId))
+        && get(/databases/$(database)/documents/workspaces/$(incoming().workspaceId)).data.ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update, delete: if false;
+    }
+
+    // Personal goals (private to the owning user)
+    match /goals/{goalId} {
+      allow get, list: if isVerified() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidGoal(incoming(), goalId)
+        && incoming().ownerId == request.auth.uid
+        && isWorkspaceMemberOf(incoming().workspaceId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && hasActiveUserDoc()
+        && isValidGoal(incoming(), goalId)
+        && existing().ownerId == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().workspaceId == existing().workspaceId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if false;
+    }
+
+    // Goal milestones (private to the goal owner)
+    match /goal_milestones/{milestoneId} {
+      allow get, list: if isVerified() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidMilestone(incoming(), milestoneId)
+        && incoming().ownerId == request.auth.uid
+        && ownsGoal(incoming().goalId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && hasActiveUserDoc()
+        && isValidMilestone(incoming(), milestoneId)
+        && existing().ownerId == request.auth.uid
+        && existing().goalId == incoming().goalId
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isVerified() && hasActiveUserDoc() && existing().ownerId == request.auth.uid;
+    }
+
+    // Execution planner tasks (private to the task owner)
+    match /planner_tasks/{taskId} {
+      allow get, list: if isVerified() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerified()
+        && hasActiveUserDoc()
+        && isValidTask(incoming(), taskId)
+        && incoming().ownerId == request.auth.uid
+        && isWorkspaceMemberOf(incoming().workspaceId)
+        && (incoming().goalId == '' || ownsGoal(incoming().goalId))
+        && (incoming().milestoneId == '' || ownsMilestone(incoming().milestoneId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && hasActiveUserDoc()
+        && isValidTask(incoming(), taskId)
+        && existing().ownerId == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().workspaceId == existing().workspaceId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isVerified() && hasActiveUserDoc() && existing().ownerId == request.auth.uid;
     }
   }
 }

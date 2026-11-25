@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "decent-envelope-q07pf"
+  },
+  "targets": {
+    "decent-envelope-q07pf": {
+      "storage": {
+        "main": ["decent-envelope-q07pf.firebasestorage.app"]
+      }
+    }
+  }
+}

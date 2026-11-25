@@ -8,7 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "emulators": "firebase emulators:start --only auth,firestore,storage",
+    "deploy:rules": "firebase deploy --only firestore:ai-studio-8bcede04-2667-4ce9-9e3a-640af99c64a4",
+    "deploy:storage": "firebase deploy --only storage:main",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting"
   },
   "dependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
@@ -37,7 +41,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"

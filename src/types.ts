@@ -1,4 +1,5 @@
 import { Timestamp } from 'firebase/firestore';
+import type { OnboardingPath, ProfileCategory } from './platformTypes';
 
 export type AdminRole = 'super_admin' | 'admin' | 'programme_manager' | 'reviewer';
 export type CanonicalRole = AdminRole | 'partner' | 'member';
@@ -79,6 +80,10 @@ export interface UserProfile {
   organisation?: string;
   maxCaseload?: number;
   notes?: string;
+  country?: string;
+  profileCategory?: ProfileCategory | '';
+  onboardingPath?: OnboardingPath | '';
+  onboardingCompletedAt?: Timestamp | null;
   lastLoginAt: Timestamp | null;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;

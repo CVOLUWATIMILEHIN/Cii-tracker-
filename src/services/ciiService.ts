@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { db, handleFirestoreError, OperationType, storage } from '../lib/firebase';
+import { isProjectOwnerEmail } from '../lib/programmeConfig';
 import {
   BLUEPRINT_LIMITS,
   clampNumber,
@@ -175,7 +176,11 @@ export async function ensureUserProfile(
         }
       }
 
-      const initialRole: CanonicalRole = inviteData ? normalizeRole(inviteData.role) : 'member';
+      const initialRole: CanonicalRole = inviteData
+        ? normalizeRole(inviteData.role)
+        : isProjectOwnerEmail(email)
+          ? 'super_admin'
+          : 'member';
       const initialAssignedCohorts = Array.isArray(inviteData?.assignedCohortIds)
         ? inviteData.assignedCohortIds.slice(0, 20)
         : [];
@@ -267,6 +272,10 @@ export async function ensureUserProfile(
         'organisation',
         'maxCaseload',
         'notes',
+        'country',
+        'profileCategory',
+        'onboardingPath',
+        'onboardingCompletedAt',
         'lastLoginAt',
         'createdAt',
         'updatedAt',
@@ -327,6 +336,10 @@ export async function ensureUserProfile(
             64
           ),
           inviteCode: typeof raw.inviteCode === 'string' ? sanitizeString(raw.inviteCode, 40) : '',
+          country: typeof raw.country === 'string' ? sanitizeString(raw.country, 56) : '',
+          profileCategory: typeof raw.profileCategory === 'string' ? raw.profileCategory : '',
+          onboardingPath: typeof raw.onboardingPath === 'string' ? raw.onboardingPath : '',
+          onboardingCompletedAt: raw.onboardingCompletedAt || null,
           lastLoginAt: serverTimestamp(),
           createdAt: raw.createdAt || serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -351,6 +364,36 @@ export async function ensureUserProfile(
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+  }
+
+  // Self-heal accounts created before owner auto-provisioning shipped: the verified
+  // project owner is promoted once, from the default Corps Member role.
+  if (
+    profile.status === 'active' &&
+    normalizeRole(profile.role) === 'member' &&
+    isProjectOwnerEmail(email)
+  ) {
+    try {
+      await updateDoc(userRef, {
+        role: 'super_admin',
+        department: 'Programme Administration',
+        updatedAt: serverTimestamp(),
+      });
+      profile = { ...profile, role: 'super_admin', department: 'Programme Administration' };
+      await recordAuditEvent({
+        actorId: uid,
+        actorName: profile.displayName,
+        actorRole: 'super_admin',
+        action: 'SUPER_ADMIN_BOOTSTRAPPED',
+        category: 'rbac',
+        severity: 'critical',
+        targetType: 'user',
+        targetId: uid,
+        summary: `Promoted verified project owner ${profile.displayName} to Super Admin.`,
+      });
+    } catch {
+      // Non-fatal: the account keeps its current role.
+    }
   }
 
   try {
@@ -416,6 +459,16 @@ function normalizeUserProfile(raw: Partial<UserProfile> & { uid?: string }): Use
           ? DEFAULT_PARTNER_MAX_CASELOAD
           : 0,
     notes: typeof raw.notes === 'string' ? raw.notes : '',
+    country: typeof raw.country === 'string' ? raw.country : '',
+    profileCategory:
+      typeof raw.profileCategory === 'string'
+        ? (raw.profileCategory as UserProfile['profileCategory'])
+        : '',
+    onboardingPath:
+      typeof raw.onboardingPath === 'string'
+        ? (raw.onboardingPath as UserProfile['onboardingPath'])
+        : '',
+    onboardingCompletedAt: raw.onboardingCompletedAt || null,
     lastLoginAt: raw.lastLoginAt || null,
     createdAt: raw.createdAt || null,
     updatedAt: raw.updatedAt || null,
@@ -2160,6 +2213,10 @@ export async function saveProgrammeSettings(params: {
 }
 
 export async function seedCiiProgrammeData(actor: UserProfile): Promise<void> {
+  if (normalizeRole(actor.role) !== 'super_admin') {
+    throw new Error('Only a Super Admin can initialize the programme baseline.');
+  }
+
   const batch = writeBatch(db);
 
   const cohort1Id = 'cohort-cii-2026-b1';

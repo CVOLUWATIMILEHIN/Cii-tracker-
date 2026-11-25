@@ -233,7 +233,7 @@ export function MemberWeeklyReportsPage() {
                     </p>
                   </div>
                   <Link
-                    to={`/weekly-reports/${rep.id}`}
+                    to={`/community/cii/weekly-reports/${rep.id}`}
                     className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap self-start sm:self-auto"
                   >
                     Open Report

@@ -54,7 +54,7 @@ export function MemberActivityDetailPage() {
             This activity is either not assigned to your cohort or is no longer published.
           </p>
           <Link
-            to="/activities"
+            to="/community/cii/activities"
             className="inline-block px-4 py-2 rounded-lg bg-slate-900 dark:bg-emerald-600 text-white text-xs font-medium"
           >
             Back to Activities
@@ -137,7 +137,7 @@ export function MemberActivityDetailPage() {
     <AppShell title={activity.title} breadcrumb={`Activities / ${activity.code} /`}>
       <div className="max-w-4xl mx-auto space-y-6">
         <Link
-          to="/activities"
+          to="/community/cii/activities"
           className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white"
         >
           <ArrowLeft className="w-3.5 h-3.5" />

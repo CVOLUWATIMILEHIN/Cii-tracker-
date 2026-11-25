@@ -1,7 +1,8 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { RequireRole } from './components/RouteGuards';
 import { AuthProvider } from './context/AuthContext';
+import { PlatformProvider } from './context/PlatformContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { WorkspaceProvider } from './context/WorkspaceContext';
 
@@ -15,6 +16,14 @@ import { ResetPasswordPage } from './pages/public/ResetPasswordPage';
 // Shared pages
 import { NotificationsPage } from './pages/shared/NotificationsPage';
 import { ProfilePage } from './pages/shared/ProfilePage';
+
+// Platform pages (personal workspace)
+import { OnboardingPage } from './pages/platform/OnboardingPage';
+import { PersonalDashboardPage } from './pages/platform/PersonalDashboardPage';
+import { GoalsPage } from './pages/platform/GoalsPage';
+import { GoalDetailPage } from './pages/platform/GoalDetailPage';
+import { PlannerPage } from './pages/platform/PlannerPage';
+import { PlatformSettingsPage } from './pages/platform/PlatformSettingsPage';
 
 // Corps Member pages
 import { MemberDashboardPage } from './pages/member/MemberDashboardPage';
@@ -54,79 +63,144 @@ const ALL_AUTHENTICATED_ROLES: CanonicalRole[] = ['member', 'partner', ...ADMIN_
 const MANAGER_ADMIN_ROLES: CanonicalRole[] = ['super_admin', 'admin', 'programme_manager'];
 const FULL_ADMIN_ROLES: CanonicalRole[] = ['super_admin', 'admin'];
 
+// Legacy CII member paths now live under the community workspace.
+function LegacyCommunityRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/community/cii${location.pathname}`} replace />;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
         <AuthProvider>
           <WorkspaceProvider>
-            <BrowserRouter>
-              <Routes>
-                {/* Public Routes */}
-                <Route path="/" element={<LandingAndLoginPage />} />
-                <Route path="/login" element={<LandingAndLoginPage />} />
-                <Route path="/activate-account" element={<ActivateAccountPage />} />
-                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
-                <Route path="/admin/login" element={<AdminLoginPage />} />
+            <PlatformProvider>
+              <BrowserRouter>
+                <Routes>
+                  {/* Public Routes */}
+                  <Route path="/" element={<LandingAndLoginPage />} />
+                  <Route path="/login" element={<LandingAndLoginPage />} />
+                  <Route path="/activate-account" element={<ActivateAccountPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
+                  <Route path="/admin/login" element={<AdminLoginPage />} />
 
-                {/* Corps Member Routes */}
-                <Route
-                  path="/dashboard"
-                  element={
-                    <RequireRole allowed={['member']}>
-                      <MemberDashboardPage />
-                    </RequireRole>
-                  }
-                />
-                <Route
-                  path="/activities"
-                  element={
-                    <RequireRole allowed={['member']}>
-                      <MemberActivitiesPage />
-                    </RequireRole>
-                  }
-                />
-                <Route
-                  path="/activities/:id"
-                  element={
-                    <RequireRole allowed={['member']}>
-                      <MemberActivityDetailPage />
-                    </RequireRole>
-                  }
-                />
-                <Route
-                  path="/check-in"
-                  element={
-                    <RequireRole allowed={['member']}>
-                      <MemberCheckinPage />
-                    </RequireRole>
-                  }
-                />
-                <Route
-                  path="/weekly-reports"
-                  element={
-                    <RequireRole allowed={['member']}>
-                      <MemberWeeklyReportsPage />
-                    </RequireRole>
-                  }
-                />
-                <Route
-                  path="/weekly-reports/:id"
-                  element={
-                    <RequireRole allowed={['member']}>
-                      <MemberWeeklyReportDetailPage />
-                    </RequireRole>
-                  }
-                />
-                <Route
-                  path="/progress"
-                  element={
-                    <RequireRole allowed={['member']}>
-                      <MemberProgressPage />
-                    </RequireRole>
-                  }
-                />
+                  {/* Personal Workspace */}
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <RequireRole allowed={ALL_AUTHENTICATED_ROLES}>
+                        <PersonalDashboardPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/onboarding"
+                    element={
+                      <RequireRole allowed={ALL_AUTHENTICATED_ROLES}>
+                        <OnboardingPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/goals"
+                    element={
+                      <RequireRole allowed={ALL_AUTHENTICATED_ROLES}>
+                        <GoalsPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/goals/:id"
+                    element={
+                      <RequireRole allowed={ALL_AUTHENTICATED_ROLES}>
+                        <GoalDetailPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/planner"
+                    element={
+                      <RequireRole allowed={ALL_AUTHENTICATED_ROLES}>
+                        <PlannerPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/settings"
+                    element={
+                      <RequireRole allowed={ALL_AUTHENTICATED_ROLES}>
+                        <PlatformSettingsPage />
+                      </RequireRole>
+                    }
+                  />
+
+                  {/* CII Community Workspace (Corps Members) */}
+                  <Route
+                    path="/community/cii"
+                    element={
+                      <RequireRole allowed={['member']}>
+                        <MemberDashboardPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/community/cii/activities"
+                    element={
+                      <RequireRole allowed={['member']}>
+                        <MemberActivitiesPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/community/cii/activities/:id"
+                    element={
+                      <RequireRole allowed={['member']}>
+                        <MemberActivityDetailPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/community/cii/check-in"
+                    element={
+                      <RequireRole allowed={['member']}>
+                        <MemberCheckinPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/community/cii/weekly-reports"
+                    element={
+                      <RequireRole allowed={['member']}>
+                        <MemberWeeklyReportsPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/community/cii/weekly-reports/:id"
+                    element={
+                      <RequireRole allowed={['member']}>
+                        <MemberWeeklyReportDetailPage />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/community/cii/progress"
+                    element={
+                      <RequireRole allowed={['member']}>
+                        <MemberProgressPage />
+                      </RequireRole>
+                    }
+                  />
+
+                  {/* Legacy CII member paths */}
+                  <Route path="/activities" element={<LegacyCommunityRedirect />} />
+                  <Route path="/activities/:id" element={<LegacyCommunityRedirect />} />
+                  <Route path="/check-in" element={<LegacyCommunityRedirect />} />
+                  <Route path="/weekly-reports" element={<LegacyCommunityRedirect />} />
+                  <Route path="/weekly-reports/:id" element={<LegacyCommunityRedirect />} />
+                  <Route path="/progress" element={<LegacyCommunityRedirect />} />
 
                 {/* Shared Authenticated Routes */}
                 <Route
@@ -320,8 +394,9 @@ export default function App() {
 
                 {/* Catch-all Fallback */}
                 <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </BrowserRouter>
+                </Routes>
+              </BrowserRouter>
+            </PlatformProvider>
           </WorkspaceProvider>
         </AuthProvider>
       </ThemeProvider>

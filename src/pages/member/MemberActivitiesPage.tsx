@@ -164,7 +164,7 @@ export function MemberActivitiesPage() {
 
                     <div className="flex justify-end">
                       <Link
-                        to={`/activities/${act.id}`}
+                        to={`/community/cii/activities/${act.id}`}
                         className="px-3.5 py-2 rounded-lg bg-slate-900 dark:bg-emerald-600 hover:bg-slate-800 dark:hover:bg-emerald-500 text-white text-xs font-medium whitespace-nowrap"
                       >
                         {sub?.status === 'revision_requested'

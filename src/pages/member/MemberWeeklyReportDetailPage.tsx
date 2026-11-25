@@ -42,7 +42,7 @@ export function MemberWeeklyReportDetailPage() {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center space-y-3">
           <p className="text-sm font-medium">Weekly report not found.</p>
           <Link
-            to="/weekly-reports"
+            to="/community/cii/weekly-reports"
             className="inline-block px-4 py-2 rounded-lg bg-slate-900 dark:bg-emerald-600 text-white text-xs font-medium"
           >
             Back to Weekly Reports
@@ -82,7 +82,7 @@ export function MemberWeeklyReportDetailPage() {
     <AppShell title={`Weekly Report · ${report.weekLabel}`} breadcrumb="Weekly Reports /">
       <div className="max-w-3xl mx-auto space-y-5">
         <Link
-          to="/weekly-reports"
+          to="/community/cii/weekly-reports"
           className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
