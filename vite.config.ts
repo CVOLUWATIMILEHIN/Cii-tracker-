@@ -13,6 +13,24 @@ export default defineConfig(() => {
       // "/src/assets/images/..." (e.g. generate_image output) still resolve
       // in production builds. Do not remove.
       {
+        // Firebase Auth pre-authorizes "localhost" but not 127.0.0.1, so a dev
+        // session opened via 127.0.0.1 fails with auth/unauthorized-domain.
+        name: 'canonical-localhost-origin',
+        apply: 'serve',
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            const host = req.headers.host ?? '';
+            if (!host.startsWith('127.0.0.1')) {
+              next();
+              return;
+            }
+            const port = host.split(':')[1] ?? '3000';
+            res.writeHead(302, {Location: `http://localhost:${port}${req.url ?? '/'}`});
+            res.end();
+          });
+        },
+      },
+      {
         name: 'copy-unbundled-src-assets',
         apply: 'build',
         closeBundle(error?: Error): void {
