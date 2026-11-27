@@ -95,6 +95,8 @@ payments are labelled as later phases in the UI and are not implemented.
 
 **Firebase Hosting:** `npm run deploy:hosting` (builds, then deploys `dist` with the SPA rewrite from `firebase.json`).
 
+**Apache shared hosting (e.g. InfinityFree):** the app is a static SPA, so no Node runtime is needed. Run `npm run build`, upload the *contents* of `dist/` (including the hidden `.htaccess`, which provides the SPA rewrite) into `htdocs/`, then enable free SSL. The site must be served over HTTPS or Google sign-in will be rejected. Finally add the hostname (e.g. `yoursite.infinityfreeapp.com`) under Firebase Console → Authentication → Settings → Authorized domains.
+
 ## Emulators
 
 ```bash
